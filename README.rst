@@ -1,7 +1,7 @@
 Cache Optimizer
 ========================
 
-This optimizer helps you to have a PageSpeed Score close to the 100, which tend to be important to achieve a better rankings on Google.
+This optimizer helps your pages to get a PageSpeed Score close to the 100, which tend to be important to achieve a better rankings on Google.
 
 It has a very specific application as the cache files are created by a customized and optimized version of an old WordPress plugin called Quick Cache. It is public here as the code might be useful for others trying to achieve similar results.
 
