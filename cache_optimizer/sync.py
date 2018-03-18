@@ -73,8 +73,11 @@ class Sync():
         return ['{}{}'.format(self.work_dir, f) for f in files_to_download]
 
 
-
-    def up(self):
-        pass
+    def up(self, directory):
+        c_rsync = 'rsync -cazv '
+        # c_rsync = '--dry-run '
+        c_rsync += ' {}'.format(directory)
+        c_rsync += ' {}@{}:{}'.format(self.site.ssh_user, self.site.domain, self.remote_cache_path)
+        os.system(c_rsync)
 
 

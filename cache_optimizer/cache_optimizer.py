@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import logging
 import os
+import re
 import requests
 import hashlib
 import tinycss2
@@ -28,7 +29,12 @@ class Optimizer():
         all relevant information information of the target website
         """
         self.sync = Sync(site, CACHE_OPTIMIZED_MARK)
+        self._prepare_output_dir()
         self.files_to_optimize = self.sync.download()
+
+    def _prepare_output_dir(self):
+        self.output_dir = self.sync.work_dir + '/04_cache_files_to_upload/'
+        os.system('mkdir -p {}'.format(self.output_dir))
 
 
     def _load_html_to_keep_classes(self, filename):
@@ -82,7 +88,7 @@ class Optimizer():
         Purify CSS for one html cache filename. Saves an intermediate file including HTML with classes to keep.
         :param html: html content to compare
         :param css_file: css file to match with html
-        :return: purified CSS filename
+        :return: purified_css content
         """
         # add html to keep classes into the HTML file to be processed
         full_html_file = self._generate_filename(seed=html, sub_dir='02_html_to_purify')
@@ -92,7 +98,11 @@ class Optimizer():
         purified_css_file = self._generate_filename(seed=html, sub_dir='03_css_purified') + '.css'
         c = 'purifycss {} {} --min --out {}'.format(full_html_file, css_file, purified_css_file)
         os.system(c)
-        return purified_css_file, full_html
+
+        # read created file to return content
+        purified_css = open(purified_css_file).read()
+
+        return purified_css, full_html
 
 
 
@@ -196,8 +206,7 @@ class Optimizer():
 
 
 
-    def _get_all_selectors(self, purified_css_file):
-        css = open(purified_css_file).read()
+    def _get_all_selectors(self, css):
 
         rules = tinycss2.parse_stylesheet(css)
         all_selectors = []
@@ -214,7 +223,6 @@ class Optimizer():
         selectors = sorted(list(set(selectors)))
 
         # logger.debug(selectors)
-        logger.debug("Total selectors found: {}".format(len(selectors)))
         return selectors
 
 
@@ -227,8 +235,103 @@ class Optimizer():
             if not d(sel):
                 unused.append(sel)
 
-        logger.info('Total unused selectors to be removed: {}'.format(len(unused)))
+        # logger.info('Total unused selectors to be removed: {}'.format(len(unused)))
         return unused
+
+    def _is_css_valid(self, css):
+        # check if css if valid
+        rules = tinycss2.parse_stylesheet(css)
+        for r in rules:
+            if r.type == 'error': return False
+        return True
+
+
+    def _remove_unused_selectors_from_rule(self, rule, unused):
+
+        new_css = ''
+
+        # ignore @media queries
+        if rule.type == 'at-rule' and rule.lower_at_keyword == 'media':
+            rule_list = tinycss2.parse_rule_list(rule.content)
+            new_css = ''
+            for r in rule_list:
+                # recursion to deal with @media elements
+                css = self._remove_unused_selectors_from_rule(r, unused)
+                new_css += css
+
+            # reconstruct media CSS if any rule is left inside @media
+            if new_css:
+                media_css = '@media'
+                for node in rule.prelude:
+                    media_css += node.serialize()
+                    # log.debug(node.serialize())
+
+                media_css = media_css + '{' + new_css + '}'
+
+                return media_css
+            else:
+                return ''
+
+        # check if there are any used selectors
+        rule_css = rule.serialize()
+        selectors = self._get_all_selectors(rule_css)
+        selectors_left = selectors[:]
+
+        for sel in selectors:
+            if sel in unused:
+                selectors_left.remove(sel)
+
+                # .nav,.sidebar li,.thumbnails{list-style:none}
+                # remove class: .thumbnails
+                rule_css = rule_css.replace(',' + sel + '{', '{')
+
+                # remove class: .sidebar li or .nav
+                rule_css = rule_css.replace(sel + ',', '')
+
+                # remove class: .nav{
+                rule_css = rule_css.replace(sel + '{', '{')
+
+        # if any selector left... uses the remaining css
+        if selectors_left:
+            if self._is_css_valid(rule_css):
+                new_css += rule_css
+            else:
+                logger.error('Invalid CSS rule detected after removing unused classes!')
+                logger.error(rule_css)
+                exit()
+
+        return new_css
+
+
+
+
+    def _remove_unused_selectors(self, css, unused):
+        """Remove all unused rules from CSS"""
+        new_css = ''
+        rules = tinycss2.parse_stylesheet(css)
+        for rule in rules[:]:
+            rule_css = self._remove_unused_selectors_from_rule(rule, unused)
+            new_css += rule_css
+        # new_css = new_css.encode('utf8')
+        return new_css
+
+
+    def _inline_css(self, html, css, style_tag):
+        if not css:
+            logger.error('CSS to inline is empty!')
+            exit()
+
+        pat = r"<link[^>]*\.css[^>]*>"
+        css_link = re.search(pat, html).group(0)
+        html = html.replace(css_link, '')
+        html = html.replace('</head>', '<style>' + css + '</style>')
+        html = html.replace('</style><style>', '')
+
+        # bad smell.. but removes specific tokens inserted on customized WordPress theme.
+        html = html.replace('___adsense_CSS_here___', '')
+        html += CACHE_OPTIMIZED_MARK
+        return html
+
 
 
     def _optimize_file(self, cache_filename):
@@ -236,7 +339,7 @@ class Optimizer():
         cache_header, html = open(cache_filename, 'r').read().split(CACHE_HEADER_SEPARATOR)
 
         soup = BeautifulSoup(html, "html.parser")
-        logger.info('Optimizing file: {}'.format(soup.find('title').text))
+        title = soup.find('title').text
 
         style_tag = soup.find('link', {"rel":"stylesheet"})
 
@@ -247,16 +350,39 @@ class Optimizer():
         css_url = style_tag.get('href','')
         css = self._get_css(css_url)
 
-        purified_css_file, full_html = self._purify_css(html, css.get('file'))
+        purified_css, full_html = self._purify_css(html, css.get('file'))
 
-        selectors = self._get_all_selectors(purified_css_file)
+        selectors = self._get_all_selectors(purified_css)
+        # logger.debug("Total selectors found: {}".format(len(selectors)))
 
         unused_selectors = self._find_unused_selectors(selectors, full_html)
 
+        clean_css = self._remove_unused_selectors(purified_css, unused_selectors)
+
+        new_html = self._inline_css(html, clean_css, style_tag)
+
+        new_cache_file_content = cache_header + CACHE_HEADER_SEPARATOR + new_html
+
+        output_cache_file = '{}{}'.format(self.output_dir, os.path.basename(cache_filename))
+
+        # logger.debug(output_cache_file)
+        open(output_cache_file,'w').write(new_cache_file_content)
+        self._print_stats(title, cache_header + html, css.get('content'), new_html)
 
 
+    def _print_stats(self, title, html_before, css_before, html_after):
+        html_before_size = len(html_before)
+        css_before_size = len(css_before)
+        html_after_size = len(html_after)
 
-
+        logger.info('{}: ({}+{}={}) -> ({}) = {:3.2f}%'.format(
+            title,
+            html_before_size,
+            css_before_size,
+            html_before_size + css_before_size,
+            html_after_size,
+            100*((html_after_size / (html_before_size + css_before_size)))
+        ))
 
 
 
@@ -268,6 +394,10 @@ class Optimizer():
         """
         self._load_html_to_keep_classes(filename=keep_html_classes_file)
 
+        logger.info('Total files to optimize: {}'.format(len(self.files_to_optimize)))
+
         for f in self.files_to_optimize:
             self._optimize_file(f)
-            exit()
+
+
+
