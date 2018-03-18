@@ -36,17 +36,27 @@ class Sync():
             self.optimized_mark.replace('!','\!').replace('-','\-'),
             self.remote_cache_path
         )
-
         optimized_files = self.site.ssh_command(c_optimized_files)
-        # all_files = self.site.ssh_command('ls -f {}'.format(self.remote_cache_path))
-        all_files = self.site.ssh_command('find {} -maxdepth 1 -type f -printf "%p\n"'.format(
+
+        c_files_with_title = 'grep -H -R "{}" {} | cut -d: -f1'.format(
+            # re.escape did not work here...
+            '<title>',
             self.remote_cache_path
-        ))
+        )
+        files_with_title = self.site.ssh_command(c_files_with_title)
+
+        # # all_files = self.site.ssh_command('ls -f {}'.format(self.remote_cache_path))
+        # all_files = self.site.ssh_command('find {} -maxdepth 1 -type f -printf "%p\n"'.format(
+        #     self.remote_cache_path
+        # ))
 
         optimized_files = [f.strip() for f in optimized_files if 'qc-c-' in f]
-        all_files = [f.strip() for f in all_files if 'qc-c-' in f]
+
+        all_files = [f.strip() for f in files_with_title if 'qc-c-' in f]
 
         return [f.strip() for f in all_files if f not in optimized_files]
+
+
 
 
     def download(self):
@@ -63,7 +73,7 @@ class Sync():
             ['{}'.format(f) for f in files_to_download]
         ))
 
-        c_rsync = 'rsync -cazv --files-from={}'.format(file_to_save_list)
+        c_rsync = 'rsync -caz --files-from={}'.format(file_to_save_list)
         c_rsync += ' {}@{}:{}'.format(self.site.ssh_user, self.site.domain, self.remote_cache_path)
         c_rsync += ' {}'.format(self.work_dir)
 
@@ -74,7 +84,7 @@ class Sync():
 
 
     def up(self, directory):
-        c_rsync = 'rsync -cazv '
+        c_rsync = 'rsync -caz '
         # c_rsync = '--dry-run '
         c_rsync += ' {}'.format(directory)
         c_rsync += ' {}@{}:{}'.format(self.site.ssh_user, self.site.domain, self.remote_cache_path)

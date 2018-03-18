@@ -9,6 +9,7 @@ import tinycss2
 from pyquery import PyQuery
 from bs4 import BeautifulSoup
 from collections import defaultdict
+from joblib import Parallel, delayed
 
 from .sync import Sync
 from .config import log_config
@@ -20,6 +21,12 @@ logger = logging.getLogger(__package__)
 
 CACHE_OPTIMIZED_MARK = '<!--opt-->';
 CACHE_HEADER_SEPARATOR = '<!--headers-->';
+
+
+# http://www.rueckstiess.net/research/snippets/show/ca1d7d90
+def unwrap_self(arg, **kwarg):
+    return Optimizer._optimize_file(*arg, **kwarg)
+
 
 
 class Optimizer():
@@ -368,6 +375,8 @@ class Optimizer():
         # logger.debug(output_cache_file)
         open(output_cache_file,'w').write(new_cache_file_content)
         self._print_stats(title, cache_header + html, css.get('content'), new_html)
+        return True
+
 
 
     def _print_stats(self, title, html_before, css_before, html_after):
@@ -389,7 +398,7 @@ class Optimizer():
 
     def optimize_all_files(self, keep_html_classes_file):
         """
-        Optimize in parallel all files downloaded
+        Optimize all files downloaded
         :return: list of final optimized files to be uploaded.
         """
         self._load_html_to_keep_classes(filename=keep_html_classes_file)
@@ -401,3 +410,20 @@ class Optimizer():
 
 
 
+
+    def optimize_all_files_in_parallel(self, keep_html_classes_file):
+        """
+        Optimize in parallel all files downloaded
+        :return: list of final optimized files to be uploaded.
+        """
+        self._load_html_to_keep_classes(filename=keep_html_classes_file)
+        files = self.files_to_optimize[:100]
+
+        if not files:
+            logger.info('No files to be optimized.')
+
+        # optimize 1 file to force the 1st css file download.
+        self._optimize_file(files.pop())
+
+        Parallel(n_jobs=64, backend="threading") \
+            (delayed(unwrap_self)(i) for i in zip([self] * len(files), files))
