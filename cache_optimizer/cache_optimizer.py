@@ -5,6 +5,7 @@ import re
 import requests
 import hashlib
 import tinycss2
+import time
 
 from pyquery import PyQuery
 from bs4 import BeautifulSoup
@@ -26,6 +27,27 @@ CACHE_HEADER_SEPARATOR = '<!--headers-->';
 # http://www.rueckstiess.net/research/snippets/show/ca1d7d90
 def unwrap_self(arg, **kwarg):
     return Optimizer._optimize_file(*arg, **kwarg)
+
+
+def timeit(method):
+    """
+    Decorator to measure execution time.
+    :param method:
+    :return:
+    """
+    def timed(*args, **kw):
+        ts = time.time()
+        result = method(*args, **kw)
+        te = time.time()
+        if 'log_time' in kw:
+            name = kw.get('log_name', method.__name__.upper())
+            kw['log_time'][name] = int((te - ts) * 1000)
+        else:
+            print('%r  %2.2f ms' % \
+                  (method.__name__, (te - ts) * 1000))
+        return result
+    return timed
+
 
 
 
@@ -340,18 +362,25 @@ class Optimizer():
         return html
 
 
-
+    # @timeit
     def _optimize_file(self, cache_filename):
         """Optimize a single file."""
         cache_header, html = open(cache_filename, 'r').read().split(CACHE_HEADER_SEPARATOR)
 
         soup = BeautifulSoup(html, "html.parser")
-        title = soup.find('title').text
+
+        title_tag = soup.find('title')
+        if not title_tag:
+            logger.info('HTML does not contain a title tag: {}'.format(cache_filename))
+            return False
+
+        title = title_tag.text
+
 
         style_tag = soup.find('link', {"rel":"stylesheet"})
 
         if not style_tag:
-            logger.info('HTML does not contain a css file in a tag <link>')
+            logger.info('HTML does not contain a css file in a tag: {}'.format(cache_filename))
             return False
 
         css_url = style_tag.get('href','')
@@ -384,7 +413,7 @@ class Optimizer():
         css_before_size = len(css_before)
         html_after_size = len(html_after)
 
-        logger.info('{}: ({}+{}={}) -> ({}) = {:3.2f}%'.format(
+        logger.info('{}: ({}+{}={}) -> ({}) = resulted {:3.1f}%'.format(
             title,
             html_before_size,
             css_before_size,
@@ -395,7 +424,7 @@ class Optimizer():
 
 
 
-
+    @timeit
     def optimize_all_files(self, keep_html_classes_file):
         """
         Optimize all files downloaded
@@ -409,21 +438,23 @@ class Optimizer():
             self._optimize_file(f)
 
 
-
-
+    @timeit
     def optimize_all_files_in_parallel(self, keep_html_classes_file):
         """
         Optimize in parallel all files downloaded
         :return: list of final optimized files to be uploaded.
         """
         self._load_html_to_keep_classes(filename=keep_html_classes_file)
-        files = self.files_to_optimize[:100]
+        files = self.files_to_optimize
 
         if not files:
             logger.info('No files to be optimized.')
+            return
+
+        logger.info('Total files to optimize (in parallel): {}'.format(len(files)))
 
         # optimize 1 file to force the 1st css file download.
         self._optimize_file(files.pop())
 
-        Parallel(n_jobs=64, backend="threading") \
-            (delayed(unwrap_self)(i) for i in zip([self] * len(files), files))
+        p = Parallel(n_jobs=16, backend="threading")
+        p(delayed(unwrap_self)(i) for i in zip([self] * len(files), files))
