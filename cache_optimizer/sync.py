@@ -66,7 +66,7 @@ class Sync():
         files_to_download = self._list_remote_files_to_optimize()
         files_to_download = [os.path.basename(f) for f in files_to_download]
 
-        logger.info('{} files to optimize!'.format(len(files_to_download)))
+        logger.info('Downloading {} files to optimize!'.format(len(files_to_download)))
 
         file_to_save_list = '{}files_to_download.txt'.format(self.work_dir)
         open(file_to_save_list,'w').write('\n'.join(
@@ -84,6 +84,7 @@ class Sync():
 
 
     def up(self, directory):
+        logger.info('Uploading optimized files ...')
         c_rsync = 'rsync -caz '
         # c_rsync = '--dry-run '
         c_rsync += ' {}'.format(directory)

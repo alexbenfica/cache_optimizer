@@ -425,17 +425,26 @@ class Optimizer():
 
 
     @timeit
-    def optimize_all_files(self, keep_html_classes_file):
+    def optimize_all_files(self, keep_html_classes_file, sync_every_x_files=-1):
         """
         Optimize all files downloaded
+        sync_every_x_files: define the number of files to be optimized before call sync to upload files
         :return: list of final optimized files to be uploaded.
         """
         self._load_html_to_keep_classes(filename=keep_html_classes_file)
 
         logger.info('Total files to optimize: {}'.format(len(self.files_to_optimize)))
 
+        count_files = 0
         for f in self.files_to_optimize:
+            logger.info('Optimizing file: {}'.format(f))
             self._optimize_file(f)
+            if count_files % sync_every_x_files == 0:
+                self.sync.up(self.output_dir)
+            count_files += 1
+
+        self.sync.up(self.output_dir)
+
 
 
     @timeit
