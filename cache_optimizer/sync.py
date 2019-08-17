@@ -58,7 +58,6 @@ class Sync():
 
 
 
-
     def download(self):
         """
         Download files using rsync, but only the necessary files
@@ -90,5 +89,3 @@ class Sync():
         c_rsync += ' {}'.format(directory)
         c_rsync += ' {}@{}:{}'.format(self.site.ssh_user, self.site.domain, self.remote_cache_path)
         os.system(c_rsync)
-
-

@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 import logging
+import codecs
 import os
 import re
+import pprint
 import requests
 import hashlib
 import tinycss2
@@ -362,10 +364,21 @@ class Optimizer():
         return html
 
 
+    def _read_file_data(self, filename):
+        f = codecs.open(filename, 'r', encoding='utf-8', errors='ignore')
+        data = f.read()
+        return data
+
     # @timeit
     def _optimize_file(self, cache_filename):
         """Optimize a single file."""
-        cache_header, html = open(cache_filename, 'r').read().split(CACHE_HEADER_SEPARATOR)
+
+        file_contents = self._read_file_data(cache_filename)
+        if CACHE_OPTIMIZED_MARK in file_contents:
+            logger.info('This file already optimized: {}'.format(cache_filename))
+            return False
+
+        cache_header, html = file_contents.split(CACHE_HEADER_SEPARATOR)
 
         soup = BeautifulSoup(html, "html.parser")
 
@@ -375,7 +388,6 @@ class Optimizer():
             return False
 
         title = title_tag.text
-
 
         style_tag = soup.find('link', {"rel":"stylesheet"})
 
@@ -438,13 +450,17 @@ class Optimizer():
         count_files = 0
         for f in self.files_to_optimize:
             logger.info('Optimizing file: {}'.format(f))
-            self._optimize_file(f)
-            if count_files % sync_every_x_files == 0:
-                self.sync.up(self.output_dir)
-            count_files += 1
+            if not self._optimize_file(f):
+                # delete files that were not optimized to avoid them from being synced bach
+                logger.info('File was not optimized: {}'.format(f))
+                os.remove(f)
+                continue
+            else:
+                count_files += 1
+                if count_files % sync_every_x_files == 0:
+                    self.sync.up(self.output_dir)
 
         self.sync.up(self.output_dir)
-
 
 
     @timeit
