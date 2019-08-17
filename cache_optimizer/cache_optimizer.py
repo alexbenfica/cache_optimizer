@@ -373,6 +373,11 @@ class Optimizer():
     def _optimize_file(self, cache_filename):
         """Optimize a single file."""
 
+
+        if not os.path.exists(cache_filename):
+            logger.info('This file does not exist: {}'.format(cache_filename))
+            return False
+
         file_contents = self._read_file_data(cache_filename)
         if CACHE_OPTIMIZED_MARK in file_contents:
             logger.info('This file already optimized: {}'.format(cache_filename))
@@ -453,7 +458,8 @@ class Optimizer():
             if not self._optimize_file(f):
                 # delete files that were not optimized to avoid them from being synced bach
                 logger.info('File was not optimized: {}'.format(f))
-                os.remove(f)
+                if os.path.exists(f):
+                    os.remove(f)
                 continue
             else:
                 count_files += 1
